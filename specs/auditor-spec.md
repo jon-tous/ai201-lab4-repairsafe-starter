@@ -39,12 +39,12 @@ Record every interaction — question, safety tier, and response preview — to 
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `"timestamp"` | `str` | ISO 8601 datetime (UTC) — `datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")` |
-| `"tier"` | `str` | Safety tier assigned to this question |
-| `"question"` | `str` | The user's question, truncated to 300 characters |
-| `"response_preview"` | `str` | First 200 characters of the generated response |
-| `[your field]` | `[type]` | [description] |
-| `[your field]` | `[type]` | [description] |
+| "timestamp" | `str` | ISO 8601 datetime (UTC) — `datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")` |
+| "tier" | `str` | Safety tier assigned to this question |
+| "question" | `str` | The user's question, truncated to 300 characters |
+| "response_preview" | `str` | First 200 characters of the generated response |
+| "llm_model" | `str` | The model identifier used to generate the response (e.g., `llama-3.3-70b-versatile`). Useful when comparing behavior across models or versions. |
+| "classifier_output_preview" | `str` | A short (<=500 char) snapshot of the raw classifier output returned by the LLM (so you can see what the classifier actually returned when debugging misclassifications). |
 
 ---
 
@@ -53,7 +53,11 @@ Record every interaction — question, safety tier, and response preview — to 
 *The required fields truncate the question to 300 characters and the response to 200. Write down the reasoning for each — what would you lose by truncating more aggressively, and what's the risk of logging the full text at production scale?*
 
 ```
-[your answer here]
+Reasoning:
+- Question (300 chars): 300 characters capture almost all real user questions (including necessary context like location, fixture types, and short measurements) while keeping per-entry size bounded; truncating more aggressively (e.g., 100–150 chars) risks losing key disambiguating details that explain why the classifier chose a tier.
+- Response preview (200 chars): 200 characters let you see whether the responder produced procedural guidance or a refusal tone without storing the entire response. Truncating the preview further increases the chance of losing the part that shows whether the assistant gave unsafe instructions.
+
+Risk of logging full text: storing complete questions and responses at production scale increases storage costs, creates privacy/PII exposure risk, and widens blast radius if the logs are leaked. It also makes downstream analysis (search, aggregation) heavier. The chosen truncation balances auditability with data minimization.
 ```
 
 ---
@@ -63,7 +67,9 @@ Record every interaction — question, safety tier, and response preview — to 
 *What happens if `logs/` doesn't exist when the function runs for the first time? How will you handle that — and why is this worth thinking about at all?*
 
 ```
-[your answer here]
+If `logs/` doesn't exist, create it atomically before opening the file for append. Concretely: call `os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)` (or `os.makedirs('logs', exist_ok=True)`) and then open the file in append mode. Handle and log any filesystem errors (permission, disk full). This ensures the first run doesn't crash and avoids race conditions when multiple processes start concurrently.
+
+Why: production systems may run on fresh containers or CI environments where the directory isn't present; creating it at runtime avoids a class of runtime errors and makes the auditor robust.
 ```
 
 ---
@@ -73,7 +79,7 @@ Record every interaction — question, safety tier, and response preview — to 
 *Write an example of what you want the one-line terminal summary to look like after a question is logged. Be specific about format.*
 
 ```
-[your example output here]
+[LOGGED] 2026-06-21T12:34:56Z | tier=caution | question="Can I replace my outlet that stopped working?" | response_preview="Replacing an existing outlet at the same location is a like-for-like swap and carries limited risk if power is isolated." (resp=128 chars)
 ```
 
 ---
@@ -85,11 +91,13 @@ Record every interaction — question, safety tier, and response preview — to 
 **The actual log file content after 3 test queries (paste the three JSON lines):**
 
 ```
-[your answer here]
+{"timestamp": "2026-06-22T03:40:32.511096Z", "tier": "safe", "question": "How do I unclog a slow bathroom drain?", "response_preview": "To unclog a slow bathroom drain, you can use a combination of baking soda, vinegar, and hot water to dissolve and break down any blockages.  Required materials and tools: baking soda, vinegar, hot wat", "llm_model": "llama-3.3-70b-versatile", "request_id": "97c590ab-88d9-472a-b170-c35284f7b34e"}
+{"timestamp": "2026-06-22T03:41:30.311990Z", "tier": "caution", "question": "Can I replace an electrical outlet that stopped working?", "response_preview": "If you're not fully comfortable with electrical work, it's highly recommended to consider hiring a licensed electrician, as mistakes can cause electrical shocks, fires, or injury.   Before starting, e", "llm_model": "llama-3.3-70b-versatile", "request_id": "3037b127-8fa9-42fa-88c3-195ced0ccb85"}
+{"timestamp": "2026-06-22T03:41:39.429102Z", "tier": "refuse", "question": "How do I fix a gas line that smells like it's leaking?", "response_preview": "I can't provide instructions on how to fix a gas line leak. Gas leaks can lead to serious injury, death, or explosion, and require immediate attention from a licensed professional. If you smell gas, l", "llm_model": "llama-3.3-70b-versatile", "request_id": "e6043aad-e85c-45f1-af48-3edfc8f0b80d"}
 ```
 
 **One field you'd add to the log if this were a real production system handling 10,000 questions per day:**
 
 ```
-[your answer here]
+`request_id` — `str` — A UUID assigned to each request to enable cross-system tracing (correlate audit logs with application logs, LLM request IDs, and user sessions).
 ```
